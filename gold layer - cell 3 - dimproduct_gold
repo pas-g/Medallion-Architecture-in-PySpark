@@ -1,0 +1,62 @@
+dimproduct_gold
+  step 1 - Create customer_gold dimension delta table
+  step 2 - remove duplicates
+  step 3 - do upsert
+
+
+            # step 1 - Create dimproduct_gold dimension delta table
+from pyspark.sql.types import *
+from delta.tables import *
+    
+DeltaTable.createIfNotExists(spark) \
+    .tableName("dimproduct_gold") \
+    .addColumn("ItemName", StringType()) \
+    .addColumn("ItemID", LongType()) \
+    .addColumn("ItemInfo", StringType()) \
+    .execute()
+
+            # step 2 - remove duplicates
+from pyspark.sql.functions import col, split, lit, when
+    
+  # Create product_silver dataframe 
+dfdimProduct_silver = df.dropDuplicates(["Item"]).select(col("Item")) \
+    .withColumn("ItemName",split(col("Item"), ", ").getItem(0)) \
+    .withColumn("ItemInfo",when((split(col("Item"), ", ").getItem(1).isNull() | (split(col("Item"), ", ").getItem(1)=="")),lit("")).otherwise(split(col("Item"), ", ").getItem(1))) 
+    
+  # Display the first 10 rows of the dataframe to preview your data
+display(dfdimProduct_silver.head(10))
+
+# This calculates the next available product ID based on the current data in the table, 
+    # assigns these new IDs to the products, and then displays the updated product information.
+from pyspark.sql.functions import monotonically_increasing_id, col, lit, max, coalesce
+    
+  # read dimProduct_gold table and store it into a temporary datafram
+dfdimProduct_temp = spark.read.table("dimProduct_gold")
+MAXProductID = dfdimProduct_temp.select(coalesce(max(col("ItemID")),lit(0)).alias("MAXItemID")).first()[0]
+dfdimProduct_gold = dfdimProduct_silver.join(dfdimProduct_temp,(dfdimProduct_silver.ItemName == dfdimProduct_temp.ItemName) & (dfdimProduct_silver.ItemInfo == dfdimProduct_temp.ItemInfo), "left_anti")
+dfdimProduct_gold = dfdimProduct_gold.withColumn("ItemID",monotonically_increasing_id() + MAXProductID + 1)
+  # Display the first 10 rows of the dataframe to preview your data
+display(dfdimProduct_gold.head(10))
+                                                                                                           
+            # step 3 - do upsert 
+from delta.tables import *
+deltaTable = DeltaTable.forPath(spark, 'Tables/dimproduct_gold')         
+dfUpdates = dfdimProduct_gold           
+deltaTable.alias('gold') \
+  .merge(
+        dfUpdates.alias('updates'),
+        'gold.ItemName = updates.ItemName AND gold.ItemInfo = updates.ItemInfo'
+        ) \
+        .whenMatchedUpdate(set =
+        {
+               
+        }
+        ) \
+        .whenNotMatchedInsert(values =
+         {
+          "ItemName": "updates.ItemName",
+          "ItemInfo": "updates.ItemInfo",
+          "ItemID": "updates.ItemID"
+          }
+          ) \
+          .execute()
