@@ -1,0 +1,68 @@
+# Date Dimension Table
+    # step 1 - create table
+    # step 2 - remove duplicate
+    # step 3 - do upsert 
+
+    # step 1 - create table
+from pyspark.sql.types import *
+from delta.tables import*
+
+# Define the schema for the dimdate_gold table
+DeltaTable.createIfNotExists(spark) \
+    .tableName("dimdate_gold") \
+    .addColumn("OrderDate", DateType()) \
+    .addColumn("Day", IntegerType()) \
+    .addColumn("Month", IntegerType()) \
+    .addColumn("Year", IntegerType()) \
+    .addColumn("mmmyyyy", StringType()) \
+    .addColumn("yyyymm", StringType()) \
+    .execute()
+
+
+
+    # step 2 - remove duplicate
+from pyspark.sql.functions import col, dayofmonth, month, year, date_format
+
+# Create dataframe for dimDate_gold
+
+dfdimDate_gold = df.dropDuplicates(["OrderDate"]).select(col("OrderDate"), \
+        dayofmonth("OrderDate").alias("Day"), \
+        month("OrderDate").alias("Month"), \
+        year("OrderDate").alias("Year"), \
+        date_format(col("OrderDate"), "MMM-yyyy").alias("mmmyyyy"), \
+        date_format(col("OrderDate"), "yyyyMM").alias("yyyymm"), \
+    ).orderBy("OrderDate")
+
+# Display the first 10 rows of the dataframe to preview your data
+display(dfdimDate_gold.head(10))
+
+
+    # step 3 - do upsert 
+from delta.tables import *
+
+deltaTable = DeltaTable.forPath(spark, 'Tables/dimdate_gold')
+dfUpdates = dfdimDate_gold
+
+deltaTable.alias('gold') \
+.merge(
+    dfUpdates.alias('updates'),
+    'gold.OrderDate = updates.OrderDate'
+) \
+.whenMatchedUpdate(set =
+    {
+        
+    }
+) \
+.whenNotMatchedInsert(values =
+    {
+    "OrderDate": "updates.OrderDate",
+    "Day": "updates.Day",
+    "Month": "updates.Month",
+    "Year": "updates.Year",
+    "mmmyyyy": "updates.mmmyyyy",
+    "yyyymm": "updates.yyyymm"
+    }
+) \
+.execute()
+
+
