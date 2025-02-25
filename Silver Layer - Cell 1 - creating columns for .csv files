@@ -1,0 +1,25 @@
+# Silver layer - 
+# the codes divided into multiple cells. this way, it is much easier to manage and understand the code
+
+            # Cell - 1  - the raw ingested data into the Lakehouse doesn't have columns. this code can be avoided if there is an existing columns in the .csv file.
+
+from pyspark.sql.types import *
+    
+ # Create the schema for the table  -- the created schema will then server as the column names for a given table that is provided
+orderSchema = StructType([
+     StructField("SalesOrderNumber", StringType()),
+     StructField("SalesOrderLineNumber", IntegerType()),
+     StructField("OrderDate", DateType()),
+     StructField("CustomerName", StringType()),
+     StructField("Email", StringType()),
+     StructField("Item", StringType()),
+     StructField("Quantity", IntegerType()),
+     StructField("UnitPrice", FloatType()),
+     StructField("Tax", FloatType())
+     ])
+
+ # Import all files from the bronze folder of the lakehouse
+df = spark.read.format("csv").option("header", "true").schema(orderSchema).load("Files/bronze/*.csv")
+    
+ # Display the first 10 rows of the dataframe to preview your data
+display(df.head(10))
