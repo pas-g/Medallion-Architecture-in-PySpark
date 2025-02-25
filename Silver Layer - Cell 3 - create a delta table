@@ -1,0 +1,22 @@
+                  # Cell - 3 - Create a silver table called 'sales_silver'
+ # Define the schema for the sales_silver table
+    
+from pyspark.sql.types import *
+from delta.tables import *
+    
+DeltaTable.createIfNotExists(spark) \
+    .tableName("sales_silver") \
+    .addColumn("SalesOrderNumber", StringType()) \
+    .addColumn("SalesOrderLineNumber", IntegerType()) \
+    .addColumn("OrderDate", DateType()) \
+    .addColumn("CustomerName", StringType()) \
+    .addColumn("Email", StringType()) \
+    .addColumn("Item", StringType()) \
+    .addColumn("Quantity", IntegerType()) \
+    .addColumn("UnitPrice", FloatType()) \
+    .addColumn("Tax", FloatType()) \
+    .addColumn("FileName", StringType()) \
+    .addColumn("IsFlagged", BooleanType()) \
+    .addColumn("CreatedTS", DateType()) \
+    .addColumn("ModifiedTS", DateType()) \
+    .execute()
