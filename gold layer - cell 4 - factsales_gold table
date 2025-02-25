@@ -1,0 +1,72 @@
+factsales_gold_gold
+  step 1 - Create customer_gold dimension delta table
+  step 2 - remove duplicates
+  step 3 - do upsert
+
+
+            # step 1 - Create dimproduct_gold dimension delta table
+from pyspark.sql.types import *
+from delta.tables import *
+    
+DeltaTable.createIfNotExists(spark) \
+    .tableName("factsales_gold") \
+    .addColumn("CustomerID", LongType()) \
+    .addColumn("ItemID", LongType()) \
+    .addColumn("OrderDate", DateType()) \
+    .addColumn("Quantity", IntegerType()) \
+    .addColumn("UnitPrice", FloatType()) \
+    .addColumn("Tax", FloatType()) \
+    .execute()
+
+            # step 2 - remove duplicates
+from pyspark.sql.functions import col
+    
+dfdimCustomer_temp = spark.read.table("dimCustomer_gold")
+dfdimProduct_temp = spark.read.table("dimProduct_gold")
+    
+df = df.withColumn("ItemName",split(col("Item"), ", ").getItem(0)) \
+    .withColumn("ItemInfo",when((split(col("Item"), ", ").getItem(1).isNull() | (split(col("Item"), ", ").getItem(1)=="")),lit("")).otherwise(split(col("Item"), ", ").getItem(1))) \
+    
+  # Create Sales_gold dataframe
+dffactSales_gold = df.alias("df1").join(dfdimCustomer_temp.alias("df2"),(df.CustomerName == dfdimCustomer_temp.CustomerName) & (df.Email == dfdimCustomer_temp.Email), "left") \
+        .join(dfdimProduct_temp.alias("df3"),(df.ItemName == dfdimProduct_temp.ItemName) & (df.ItemInfo == dfdimProduct_temp.ItemInfo), "left") \
+    .select(col("df2.CustomerID") \
+        , col("df3.ItemID") \
+        , col("df1.OrderDate") \
+        , col("df1.Quantity") \
+        , col("df1.UnitPrice") \
+        , col("df1.Tax") \
+    ).orderBy(col("df1.OrderDate"), col("df2.CustomerID"), col("df3.ItemID"))
+    
+  # Display the first 10 rows of the dataframe to preview your data
+display(dffactSales_gold.head(10))
+                                                                                                           
+            # step 3 - do upsert 
+    # synchronize and update the factsales_gold table with new sales data (dffactSales_gold). 
+    # The operation compares the order date, customer ID, and item ID between the existing data (silver table) and the new data (updates DataFrame), updating matching records and inserting new records as needed.
+
+from delta.tables import *
+  
+deltaTable = DeltaTable.forPath(spark, 'Tables/factsales_gold')  
+dfUpdates = dffactSales_gold
+deltaTable.alias('gold') \
+  .merge(
+    dfUpdates.alias('updates'),
+    'gold.OrderDate = updates.OrderDate AND gold.CustomerID = updates.CustomerID AND gold.ItemID = updates.ItemID'
+  ) \
+   .whenMatchedUpdate(set =
+    {
+          
+    }
+  ) \
+ .whenNotMatchedInsert(values =
+    {
+      "CustomerID": "updates.CustomerID",
+      "ItemID": "updates.ItemID",
+      "OrderDate": "updates.OrderDate",
+      "Quantity": "updates.Quantity",
+      "UnitPrice": "updates.UnitPrice",
+      "Tax": "updates.Tax"
+    }
+  ) \
+  .execute()
